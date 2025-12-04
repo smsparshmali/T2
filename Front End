@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Premium Calculator - Dry Run</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background: #f5f5f5;
+    }
+    h1 {
+      text-align: center;
+    }
+    .card {
+      background: #ffffff;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      max-width: 900px;
+      margin: 0 auto 20px auto;
+    }
+    .card h2 {
+      margin-top: 0;
+    }
+    input[type="file"] {
+      margin-top: 10px;
+    }
+    button {
+      margin-top: 15px;
+      padding: 8px 16px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button#processBtn {
+      background-color: #1976d2;
+      color: white;
+    }
+    button#resetBtn {
+      background-color: #e0e0e0;
+    }
+    .summary {
+      margin-top: 15px;
+      padding: 10px;
+      border-radius: 8px;
+      background: #e3f2fd;
+    }
+    .error-box {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 8px;
+      background: #ffebee;
+      color: #b71c1c;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+      font-size: 14px;
+      background: white;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: center;
+    }
+    th {
+      background-color: #eeeeee;
+      font-weight: bold;
+    }
+    .status-success {
+      color: #2e7d32;
+      font-weight: bold;
+    }
+    .status-error {
+      color: #c62828;
+      font-weight: bold;
+    }
+    .note {
+      font-size: 13px;
+      color: #555;
+      margin-top: 8px;
+    }
+    code {
+      background: #eeeeee;
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Premium Calculator (Dry Run)</h1>
+
+  <div class="card">
+    <h2>1. Upload Input File</h2>
+    <p>
+      Upload a <strong>CSV file exported from Excel</strong> with the following columns:
+    </p>
+    <ul>
+      <li><code>DOB</code> in <strong>dd-mm-yyyy</strong> format (e.g., <code>15-08-1995</code>)</li>
+      <li><code>Gender</code> as <strong>Male/Female</strong> or <strong>M/F</strong></li>
+      <li><code>SA</code> (Sum Assured) as a number (e.g., <code>500000</code>)</li>
+    </ul>
+
+    <input type="file" id="fileInput" accept=".csv" />
+    <div class="note">
+      Tip: In Excel → <strong>Save As</strong> → <strong>CSV (Comma delimited)</strong>.
+    </div>
+
+    <button id="processBtn">Process File</button>
+    <button id="resetBtn">Reset</button>
+
+    <div id="summary" class="summary" style="display:none;"></div>
+    <div id="globalErrors" class="error-box" style="display:none;"></div>
+  </div>
+
+  <div class="card">
+    <h2>2. Results</h2>
+    <table id="resultsTable" style="display:none;">
+      <thead>
+        <tr>
+          <th>Row #</th>
+          <th>DOB</th>
+          <th>Age</th>
+          <th>Gender</th>
+          <th>SA</th>
+          <th>Lakh Value</th>
+          <th>Age Multiplier</th>
+          <th>Gender Multiplier</th>
+          <th>Status</th>
+          <th>Premium</th>
+          <th>Error Details</th>
+        </tr>
+      </thead>
+      <tbody id="resultsBody"></tbody>
+    </table>
+  </div>
+
+  <script>
+    // --- Configuration: multipliers ---
+    const GENDER_MULTIPLIER = {
+      male: 3,
+      m: 3,
+      female: 2,
+      f: 2
+    };
+
+    function getAgeMultiplier(age) {
+      if (age >= 18 && age <= 25) return 2;
+      if (age >= 26 && age <= 35) return 3;
+      return null; // out of range
+    }
+
+    function calculateAgeFromDOB(dobStr) {
+      // Expecting dd-mm-yyyy
+      const parts = dobStr.split("-");
+      if (parts.length !== 3) {
+        return { age: null, error: "DOB format invalid (expected dd-mm-yyyy)" };
+      }
+
+      const day = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1; // JS months 0–11
+      const year = parseInt(parts[2], 10);
+
+      if (
+        isNaN(day) || isNaN(month) || isNaN(year) ||
+        day <= 0 || day > 31 || month < 0 || month > 11
+      ) {
+        return { age: null, error: "DOB contains invalid date values" };
+      }
+
+      const dob = new Date(year, month, day);
+      if (isNaN(dob.getTime())) {
+        return { age: null, error: "DOB could not be parsed" };
+      }
+
+      const today = new Date();
+      let age = today.getFullYear() - dob.getFullYear();
+      const m = today.getMonth() - dob.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) {
+        age--;
+      }
+
+      if (age < 0) {
+        return { age: null, error: "DOB is in the future" };
+      }
+
+      return { age: age, error: null };
+    }
+
+    function parseCSV(text) {
+      // Very simple CSV parser assuming no commas inside values
+      const lines = text.split(/\r?\n/).filter(line => line.trim() !== "");
+      if (lines.length === 0) return { headers: [], rows: [] };
+
+      const headers = lines[0].split(",").map(h => h.trim());
+      const rows = lines.slice(1).map(line => line.split(",").map(c => c.trim()));
+      return { headers, rows };
+    }
+
+    function processFileContent(content) {
+      const { headers, rows } = parseCSV(content);
+
+      const dobIndex = headers.findIndex(h => h.toLowerCase() === "dob");
+      const genderIndex = headers.findIndex(h => h.toLowerCase() === "gender");
+      const saIndex = headers.findIndex(h => h.toLowerCase() === "sa");
+
+      const globalErrors = [];
+      if (dobIndex === -1) globalErrors.push("Missing column: DOB");
+      if (genderIndex === -1) globalErrors.push("Missing column: Gender");
+      if (saIndex === -1) globalErrors.push("Missing column: SA");
+
+      const globalErrorBox = document.getElementById("globalErrors");
+      const summaryBox = document.getElementById("summary");
+      const resultsTable = document.getElementById("resultsTable");
+      const resultsBody = document.getElementById("resultsBody");
+
+      resultsBody.innerHTML = "";
+      resultsTable.style.display = "none";
+      summaryBox.style.display = "none";
+      globalErrorBox.style.display = "none";
+
+      if (globalErrors.length > 0) {
+        globalErrorBox.innerHTML = "<strong>File Error(s):</strong><br>" + globalErrors.join("<br>");
+        globalErrorBox.style.display = "block";
+        return;
+      }
+
+      let successCount = 0;
+      let errorCount = 0;
+
+      rows.forEach((cols, index) => {
+        const rowNumber = index + 2; // because row 1 is header
+        const dobStr = cols[dobIndex] || "";
+        const genderStr = (cols[genderIndex] || "").toLowerCase();
+        const saStr = cols[saIndex] || "";
+
+        let status = "Success";
+        let errorDetails = "";
+        let premium = "";
+        let age = null;
+        let ageMultiplier = null;
+        let genderMultiplier = null;
+        let lakhValue = null;
+
+        // 1) Age + DOB validation
+        const ageResult = calculateAgeFromDOB(dobStr);
+        if (ageResult.error) {
+          status = "Error";
+          errorDetails += ageResult.error + " | ";
+        } else {
+          age = ageResult.age;
+          ageMultiplier = getAgeMultiplier(age);
+          if (ageMultiplier === null) {
+            status = "Error";
+            errorDetails += "Age out of allowed range (18–35) | ";
+          }
+        }
+
+        // 2) Gender validation
+        if (!GENDER_MULTIPLIER.hasOwnProperty(genderStr)) {
+          status = "Error";
+          errorDetails += "Invalid Gender (use Male/Female or M/F) | ";
+        } else {
+          genderMultiplier = GENDER_MULTIPLIER[genderStr];
+        }
+
+        // 3) SA validation
+        const saValue = parseFloat(saStr);
+        if (isNaN(saValue) || saValue <= 0) {
+          status = "Error";
+          errorDetails += "Invalid SA (must be a positive number) | ";
+        } else {
+          lakhValue = saValue / 100000;
+        }
+
+        // 4) Final premium calculation
+        if (status === "Success") {
+          premium = lakhValue * genderMultiplier * ageMultiplier;
+          successCount++;
+        } else {
+          errorCount++;
+        }
+
+        const tr = document.createElement("tr");
+
+        tr.innerHTML = `
+          <td>${rowNumber}</td>
+          <td>${dobStr}</td>
+          <td>${age !== null ? age : "-"}</td>
+          <td>${cols[genderIndex] || ""}</td>
+          <td>${saStr}</td>
+          <td>${lakhValue !== null ? lakhValue.toFixed(2) : "-"}</td>
+          <td>${ageMultiplier !== null ? ageMultiplier : "-"}</td>
+          <td>${genderMultiplier !== null ? genderMultiplier : "-"}</td>
+          <td class="${status === "Success" ? "status-success" : "status-error"}">${status}</td>
+          <td>${premium !== "" ? premium.toFixed(2) : "-"}</td>
+          <td>${errorDetails ? errorDetails.replace(/\s\|\s$/,"") : "-"}</td>
+        `;
+
+        resultsBody.appendChild(tr);
+      });
+
+      // Show results & summary
+      resultsTable.style.display = "table";
+
+      summaryBox.innerHTML = `
+        <strong>Processing Complete</strong><br>
+        Total rows (excluding header): <strong>${rows.length}</strong><br>
+        Successful premium calculations: <strong>${successCount}</strong><br>
+        Rows with errors: <strong>${errorCount}</strong>
+      `;
+      summaryBox.style.display = "block";
+    }
+
+    // --- Event Listeners ---
+    document.getElementById("processBtn").addEventListener("click", function () {
+      const fileInput = document.getElementById("fileInput");
+      const file = fileInput.files[0];
+
+      const globalErrorBox = document.getElementById("globalErrors");
+      globalErrorBox.style.display = "none";
+      globalErrorBox.textContent = "";
+
+      if (!file) {
+        globalErrorBox.textContent = "Please select a CSV file before clicking Process.";
+        globalErrorBox.style.display = "block";
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        try {
+          processFileContent(e.target.result);
+        } catch (err) {
+          globalErrorBox.textContent = "Unexpected error while processing file: " + err.message;
+          globalErrorBox.style.display = "block";
+        }
+      };
+      reader.onerror = function () {
+        globalErrorBox.textContent = "Failed to read the file. Please try again.";
+        globalErrorBox.style.display = "block";
+      };
+      reader.readAsText(file);
+    });
+
+    document.getElementById("resetBtn").addEventListener("click", function () {
+      document.getElementById("fileInput").value = "";
+      document.getElementById("resultsBody").innerHTML = "";
+      document.getElementById("resultsTable").style.display = "none";
+      document.getElementById("summary").style.display = "none";
+      document.getElementById("globalErrors").style.display = "none";
+    });
+  </script>
+</body>
+</html>
