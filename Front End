@@ -4,31 +4,35 @@
   <meta charset="UTF-8" />
   <title>Premium Calculator - Dry Run</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- SheetJS (xlsx) for reading Excel files -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
   <style>
     body {
       font-family: Arial, sans-serif;
       margin: 20px;
-      background: #f5f5f5;
+      max-width: 900px;
     }
     h1 {
-      text-align: center;
+      font-size: 24px;
+      margin-bottom: 10px;
     }
     .card {
-      background: #ffffff;
-      padding: 20px;
-      border-radius: 10px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-      max-width: 900px;
-      margin: 0 auto 20px auto;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
     }
-    .card h2 {
-      margin-top: 0;
+    label {
+      font-weight: bold;
     }
     input[type="file"] {
-      margin-top: 10px;
+      margin-top: 8px;
     }
     button {
-      margin-top: 15px;
+      margin-top: 12px;
       padding: 8px 16px;
       border-radius: 6px;
       border: none;
@@ -36,324 +40,309 @@
       font-weight: 600;
     }
     button#processBtn {
-      background-color: #1976d2;
+      background: #0066cc;
       color: white;
     }
-    button#resetBtn {
-      background-color: #e0e0e0;
+    button#processBtn:disabled {
+      background: #aaa;
+      cursor: not-allowed;
     }
-    .summary {
-      margin-top: 15px;
-      padding: 10px;
-      border-radius: 8px;
-      background: #e3f2fd;
-    }
-    .error-box {
+    .status {
       margin-top: 10px;
-      padding: 10px;
-      border-radius: 8px;
-      background: #ffebee;
-      color: #b71c1c;
+      font-size: 14px;
+    }
+    .status.error {
+      color: #b00020;
+    }
+    .status.success {
+      color: #006400;
     }
     table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 20px;
+      margin-top: 16px;
       font-size: 14px;
-      background: white;
     }
     th, td {
       border: 1px solid #ddd;
-      padding: 8px;
-      text-align: center;
+      padding: 6px 8px;
+      text-align: left;
     }
     th {
-      background-color: #eeeeee;
-      font-weight: bold;
+      background: #f3f3f3;
     }
-    .status-success {
-      color: #2e7d32;
-      font-weight: bold;
-    }
-    .status-error {
-      color: #c62828;
-      font-weight: bold;
-    }
-    .note {
-      font-size: 13px;
-      color: #555;
-      margin-top: 8px;
-    }
-    code {
-      background: #eeeeee;
-      padding: 2px 4px;
-      border-radius: 4px;
+    .error-cell {
+      color: #b00020;
+      font-weight: 600;
     }
   </style>
 </head>
 <body>
-  <h1>Premium Calculator (Dry Run)</h1>
+  <h1>Automated Premium Calculator (Dry Test Run)</h1>
 
   <div class="card">
-    <h2>1. Upload Input File</h2>
-    <p>
-      Upload a <strong>CSV file exported from Excel</strong> with the following columns:
-    </p>
+    <p><strong>Upload Excel file</strong> with columns:</p>
     <ul>
-      <li><code>DOB</code> in <strong>dd-mm-yyyy</strong> format (e.g., <code>15-08-1995</code>)</li>
-      <li><code>Gender</code> as <strong>Male/Female</strong> or <strong>M/F</strong></li>
-      <li><code>SA</code> (Sum Assured) as a number (e.g., <code>500000</code>)</li>
+      <li><code>DOB</code> – format: <strong>DD-MM-YYYY</strong></li>
+      <li><code>Gender</code> – e.g. <strong>Male / Female / M / F</strong></li>
+      <li><code>SA</code> – Sum Assured, e.g. <strong>500000</strong></li>
     </ul>
 
-    <input type="file" id="fileInput" accept=".csv" />
-    <div class="note">
-      Tip: In Excel → <strong>Save As</strong> → <strong>CSV (Comma delimited)</strong>.
-    </div>
+    <label for="fileInput">Select Excel file (.xlsx / .xls):</label><br />
+    <input type="file" id="fileInput" accept=".xlsx,.xls" />
+    <br />
+    <button id="processBtn" disabled>Process File</button>
 
-    <button id="processBtn">Process File</button>
-    <button id="resetBtn">Reset</button>
-
-    <div id="summary" class="summary" style="display:none;"></div>
-    <div id="globalErrors" class="error-box" style="display:none;"></div>
+    <div id="status" class="status"></div>
   </div>
 
   <div class="card">
-    <h2>2. Results</h2>
-    <table id="resultsTable" style="display:none;">
-      <thead>
-        <tr>
-          <th>Row #</th>
-          <th>DOB</th>
-          <th>Age</th>
-          <th>Gender</th>
-          <th>SA</th>
-          <th>Lakh Value</th>
-          <th>Age Multiplier</th>
-          <th>Gender Multiplier</th>
-          <th>Status</th>
-          <th>Premium</th>
-          <th>Error Details</th>
-        </tr>
-      </thead>
-      <tbody id="resultsBody"></tbody>
-    </table>
+    <h2>Results</h2>
+    <div id="resultsContainer">
+      <p>No data processed yet.</p>
+    </div>
   </div>
 
   <script>
-    // --- Configuration: multipliers ---
-    const GENDER_MULTIPLIER = {
-      male: 3,
-      m: 3,
-      female: 2,
-      f: 2
-    };
+    const fileInput = document.getElementById("fileInput");
+    const processBtn = document.getElementById("processBtn");
+    const statusDiv = document.getElementById("status");
+    const resultsContainer = document.getElementById("resultsContainer");
 
-    function getAgeMultiplier(age) {
-      if (age >= 18 && age <= 25) return 2;
-      if (age >= 26 && age <= 35) return 3;
-      return null; // out of range
-    }
+    let workbookData = null; // Raw SheetJS JSON for first sheet
 
-    function calculateAgeFromDOB(dobStr) {
-      // Expecting dd-mm-yyyy
-      const parts = dobStr.split("-");
-      if (parts.length !== 3) {
-        return { age: null, error: "DOB format invalid (expected dd-mm-yyyy)" };
+    // Enable the button once a file is selected
+    fileInput.addEventListener("change", () => {
+      if (fileInput.files && fileInput.files.length > 0) {
+        processBtn.disabled = false;
+        statusDiv.textContent = "";
+        statusDiv.className = "status";
+      } else {
+        processBtn.disabled = true;
       }
+    });
 
-      const day = parseInt(parts[0], 10);
-      const month = parseInt(parts[1], 10) - 1; // JS months 0–11
-      const year = parseInt(parts[2], 10);
-
-      if (
-        isNaN(day) || isNaN(month) || isNaN(year) ||
-        day <= 0 || day > 31 || month < 0 || month > 11
-      ) {
-        return { age: null, error: "DOB contains invalid date values" };
-      }
-
-      const dob = new Date(year, month, day);
-      if (isNaN(dob.getTime())) {
-        return { age: null, error: "DOB could not be parsed" };
-      }
-
-      const today = new Date();
-      let age = today.getFullYear() - dob.getFullYear();
-      const m = today.getMonth() - dob.getMonth();
-      if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) {
-        age--;
-      }
-
-      if (age < 0) {
-        return { age: null, error: "DOB is in the future" };
-      }
-
-      return { age: age, error: null };
-    }
-
-    function parseCSV(text) {
-      // Very simple CSV parser assuming no commas inside values
-      const lines = text.split(/\r?\n/).filter(line => line.trim() !== "");
-      if (lines.length === 0) return { headers: [], rows: [] };
-
-      const headers = lines[0].split(",").map(h => h.trim());
-      const rows = lines.slice(1).map(line => line.split(",").map(c => c.trim()));
-      return { headers, rows };
-    }
-
-    function processFileContent(content) {
-      const { headers, rows } = parseCSV(content);
-
-      const dobIndex = headers.findIndex(h => h.toLowerCase() === "dob");
-      const genderIndex = headers.findIndex(h => h.toLowerCase() === "gender");
-      const saIndex = headers.findIndex(h => h.toLowerCase() === "sa");
-
-      const globalErrors = [];
-      if (dobIndex === -1) globalErrors.push("Missing column: DOB");
-      if (genderIndex === -1) globalErrors.push("Missing column: Gender");
-      if (saIndex === -1) globalErrors.push("Missing column: SA");
-
-      const globalErrorBox = document.getElementById("globalErrors");
-      const summaryBox = document.getElementById("summary");
-      const resultsTable = document.getElementById("resultsTable");
-      const resultsBody = document.getElementById("resultsBody");
-
-      resultsBody.innerHTML = "";
-      resultsTable.style.display = "none";
-      summaryBox.style.display = "none";
-      globalErrorBox.style.display = "none";
-
-      if (globalErrors.length > 0) {
-        globalErrorBox.innerHTML = "<strong>File Error(s):</strong><br>" + globalErrors.join("<br>");
-        globalErrorBox.style.display = "block";
-        return;
-      }
-
-      let successCount = 0;
-      let errorCount = 0;
-
-      rows.forEach((cols, index) => {
-        const rowNumber = index + 2; // because row 1 is header
-        const dobStr = cols[dobIndex] || "";
-        const genderStr = (cols[genderIndex] || "").toLowerCase();
-        const saStr = cols[saIndex] || "";
-
-        let status = "Success";
-        let errorDetails = "";
-        let premium = "";
-        let age = null;
-        let ageMultiplier = null;
-        let genderMultiplier = null;
-        let lakhValue = null;
-
-        // 1) Age + DOB validation
-        const ageResult = calculateAgeFromDOB(dobStr);
-        if (ageResult.error) {
-          status = "Error";
-          errorDetails += ageResult.error + " | ";
-        } else {
-          age = ageResult.age;
-          ageMultiplier = getAgeMultiplier(age);
-          if (ageMultiplier === null) {
-            status = "Error";
-            errorDetails += "Age out of allowed range (18–35) | ";
-          }
-        }
-
-        // 2) Gender validation
-        if (!GENDER_MULTIPLIER.hasOwnProperty(genderStr)) {
-          status = "Error";
-          errorDetails += "Invalid Gender (use Male/Female or M/F) | ";
-        } else {
-          genderMultiplier = GENDER_MULTIPLIER[genderStr];
-        }
-
-        // 3) SA validation
-        const saValue = parseFloat(saStr);
-        if (isNaN(saValue) || saValue <= 0) {
-          status = "Error";
-          errorDetails += "Invalid SA (must be a positive number) | ";
-        } else {
-          lakhValue = saValue / 100000;
-        }
-
-        // 4) Final premium calculation
-        if (status === "Success") {
-          premium = lakhValue * genderMultiplier * ageMultiplier;
-          successCount++;
-        } else {
-          errorCount++;
-        }
-
-        const tr = document.createElement("tr");
-
-        tr.innerHTML = `
-          <td>${rowNumber}</td>
-          <td>${dobStr}</td>
-          <td>${age !== null ? age : "-"}</td>
-          <td>${cols[genderIndex] || ""}</td>
-          <td>${saStr}</td>
-          <td>${lakhValue !== null ? lakhValue.toFixed(2) : "-"}</td>
-          <td>${ageMultiplier !== null ? ageMultiplier : "-"}</td>
-          <td>${genderMultiplier !== null ? genderMultiplier : "-"}</td>
-          <td class="${status === "Success" ? "status-success" : "status-error"}">${status}</td>
-          <td>${premium !== "" ? premium.toFixed(2) : "-"}</td>
-          <td>${errorDetails ? errorDetails.replace(/\s\|\s$/,"") : "-"}</td>
-        `;
-
-        resultsBody.appendChild(tr);
-      });
-
-      // Show results & summary
-      resultsTable.style.display = "table";
-
-      summaryBox.innerHTML = `
-        <strong>Processing Complete</strong><br>
-        Total rows (excluding header): <strong>${rows.length}</strong><br>
-        Successful premium calculations: <strong>${successCount}</strong><br>
-        Rows with errors: <strong>${errorCount}</strong>
-      `;
-      summaryBox.style.display = "block";
-    }
-
-    // --- Event Listeners ---
-    document.getElementById("processBtn").addEventListener("click", function () {
-      const fileInput = document.getElementById("fileInput");
+    // Main process button click
+    processBtn.addEventListener("click", () => {
       const file = fileInput.files[0];
-
-      const globalErrorBox = document.getElementById("globalErrors");
-      globalErrorBox.style.display = "none";
-      globalErrorBox.textContent = "";
-
       if (!file) {
-        globalErrorBox.textContent = "Please select a CSV file before clicking Process.";
-        globalErrorBox.style.display = "block";
+        showStatus("Please select a file first.", true);
         return;
       }
 
       const reader = new FileReader();
-      reader.onload = function (e) {
+      reader.onload = (e) => {
         try {
-          processFileContent(e.target.result);
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: "array" });
+
+          // Take the first sheet
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+
+          // Convert to JSON: each row is an object { headerName: value }
+          const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+          if (jsonData.length === 0) {
+            showStatus("The sheet is empty.", true);
+            return;
+          }
+
+          workbookData = jsonData;
+          // Once we have data, process it
+          const { results, anyErrors } = processPremiums(jsonData);
+          renderResultsTable(results);
+          if (anyErrors) {
+            showStatus("Processed with some errors. Check the Error column.", true);
+          } else {
+            showStatus("Successfully processed all rows.", false);
+          }
         } catch (err) {
-          globalErrorBox.textContent = "Unexpected error while processing file: " + err.message;
-          globalErrorBox.style.display = "block";
+          console.error(err);
+          showStatus("Error reading file: " + err.message, true);
         }
       };
-      reader.onerror = function () {
-        globalErrorBox.textContent = "Failed to read the file. Please try again.";
-        globalErrorBox.style.display = "block";
-      };
-      reader.readAsText(file);
+      reader.readAsArrayBuffer(file);
     });
 
-    document.getElementById("resetBtn").addEventListener("click", function () {
-      document.getElementById("fileInput").value = "";
-      document.getElementById("resultsBody").innerHTML = "";
-      document.getElementById("resultsTable").style.display = "none";
-      document.getElementById("summary").style.display = "none";
-      document.getElementById("globalErrors").style.display = "none";
-    });
+    // Show status message
+    function showStatus(message, isError) {
+      statusDiv.textContent = message;
+      statusDiv.className = "status " + (isError ? "error" : "success");
+    }
+
+    // Core business logic: calculate premiums for each row
+    function processPremiums(rows) {
+      // We’ll try to map columns by header name, ignoring case.
+      // Expected headers (any case): DOB, Gender, SA
+      let anyErrors = false;
+
+      // Normalize header names
+      // We assume all objects in rows have same keys as first row
+      const headerMap = {};
+      const firstRow = rows[0];
+      Object.keys(firstRow).forEach(h => {
+        const normalized = h.trim().toLowerCase();
+        headerMap[normalized] = h;
+      });
+
+      const dobCol = headerMap["dob"];
+      const genderCol = headerMap["gender"];
+      const saCol = headerMap["sa"];
+
+      if (!dobCol || !genderCol || !saCol) {
+        throw new Error("Missing required columns: DOB, Gender, SA. Check header names in your Excel.");
+      }
+
+      const processed = rows.map((row, index) => {
+        const originalDob = String(row[dobCol]).trim();
+        const originalGender = String(row[genderCol]).trim();
+        const originalSa = row[saCol];
+
+        let premium = null;
+        let error = "";
+
+        // 1. Validate & parse DOB → age
+        let age = null;
+        if (!originalDob) {
+          error = "DOB is empty";
+        } else {
+          age = calculateAgeFromDDMMYYYY(originalDob);
+          if (age === null || isNaN(age)) {
+            error = "Invalid DOB format (expected DD-MM-YYYY)";
+          }
+        }
+
+        // 2. Gender multiplier
+        let genderMultiplier = null;
+        if (!error) {
+          genderMultiplier = getGenderMultiplier(originalGender);
+          if (genderMultiplier === null) {
+            error = "Invalid gender (expected Male/Female/M/F)";
+          }
+        }
+
+        // 3. Age multiplier
+        let ageMultiplier = null;
+        if (!error) {
+          ageMultiplier = getAgeMultiplier(age);
+          if (ageMultiplier === null) {
+            error = "Age out of supported range (18–35)";
+          }
+        }
+
+        // 4. Lakh value and premium
+        if (!error) {
+          const saNumber = Number(originalSa);
+          if (!Number.isFinite(saNumber) || saNumber <= 0) {
+            error = "Invalid SA (must be positive number)";
+          } else {
+            const lakhValue = saNumber / 100000; // 5 lakhs → 5
+
+            // ASSUMPTION:
+            // Premium = LakhValue × GenderMultiplier × AgeMultiplier
+            premium = lakhValue * genderMultiplier * ageMultiplier;
+          }
+        }
+
+        if (error) {
+          anyErrors = true;
+        }
+
+        return {
+          Row: index + 2, // +2 because header is row 1 in Excel
+          DOB: originalDob,
+          Gender: originalGender,
+          SA: originalSa,
+          Age: age,
+          GenderMultiplier: genderMultiplier,
+          AgeMultiplier: ageMultiplier,
+          Premium: error ? null : premium,
+          Error: error
+        };
+      });
+
+      return { results: processed, anyErrors };
+    }
+
+    // Parse DOB in DD-MM-YYYY format and compute age as of today
+    function calculateAgeFromDDMMYYYY(dobStr) {
+      const parts = dobStr.split("-");
+      if (parts.length !== 3) return null;
+      let [dd, mm, yyyy] = parts;
+      dd = parseInt(dd, 10);
+      mm = parseInt(mm, 10);
+      yyyy = parseInt(yyyy, 10);
+      if (!dd || !mm || !yyyy) return null;
+
+      // JS months are 0-based
+      const birthDate = new Date(yyyy, mm - 1, dd);
+      if (isNaN(birthDate.getTime())) return null;
+
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const m = today.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+      return age;
+    }
+
+    // Gender multiplier
+    function getGenderMultiplier(g) {
+      const val = g.trim().toLowerCase();
+      if (val === "male" || val === "m") return 3;
+      if (val === "female" || val === "f") return 2;
+      return null;
+    }
+
+    // Age multiplier
+    function getAgeMultiplier(age) {
+      if (age >= 18 && age <= 25) return 2;
+      if (age >= 26 && age <= 35) return 3;
+      return null; // unsupported range
+    }
+
+    // Render results in a table
+    function renderResultsTable(rows) {
+      if (!rows || rows.length === 0) {
+        resultsContainer.innerHTML = "<p>No data to display.</p>";
+        return;
+      }
+
+      let html = "<table><thead><tr>";
+      const headers = [
+        "Row",
+        "DOB",
+        "Gender",
+        "SA",
+        "Age",
+        "GenderMultiplier",
+        "AgeMultiplier",
+        "Premium",
+        "Error"
+      ];
+      headers.forEach(h => {
+        html += "<th>" + h + "</th>";
+      });
+      html += "</tr></thead><tbody>";
+
+      rows.forEach(r => {
+        html += "<tr>";
+        headers.forEach(h => {
+          const value = r[h];
+          if (h === "Error" && value) {
+            html += '<td class="error-cell">' + value + "</td>";
+          } else {
+            html += "<td>" + (value === null || value === undefined ? "" : value) + "</td>";
+          }
+        });
+        html += "</tr>";
+      });
+
+      html += "</tbody></table>";
+      resultsContainer.innerHTML = html;
+    }
   </script>
 </body>
 </html>
